@@ -16,10 +16,21 @@ The RTF header (Westlaw metadata) is the source of truth for the correct citatio
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from ..config import ProjectConfig
 from ..utils.file_utils import sanitize_filename
+
+# Shared caselaw-JSON generator (skills/authorities/scripts/rtf_to_json.py).
+# Produces a <stem>.json sibling beside each .txt via Claude Haiku.
+_AUTH_SCRIPTS = Path.home() / ".claude/skills/authorities/scripts"
+if str(_AUTH_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_AUTH_SCRIPTS))
+try:
+    from rtf_to_json import txt_to_json as _txt_to_json  # noqa: E402
+except ImportError:
+    _txt_to_json = None
 
 
 # --- RTF header citation extraction ---
@@ -397,6 +408,25 @@ def run(config: ProjectConfig):
 
     print(f"\n  Converted {converted} RTFs, renamed {renamed} files, "
           f"skipped {skipped} (already exist).")
+
+    # Emit .json sidecars for every .txt authority that doesn't have one.
+    # JSON is the canonical caselaw format used downstream by cite-check and
+    # load_opinion(); .txt stays on disk permanently.
+    if _txt_to_json is not None:
+        json_generated = 0
+        json_skipped = 0
+        for txt_path in sorted(auth_dir.glob("*.txt")):
+            if auth_dir.joinpath(txt_path.stem + ".json").exists():
+                json_skipped += 1
+                continue
+            try:
+                out = _txt_to_json(txt_path)
+            except Exception as e:
+                print(f"  json: failed for {txt_path.name}: {e}")
+                continue
+            if out is not None:
+                json_generated += 1
+        print(f"  JSON: generated {json_generated}, already had {json_skipped}.")
     if symlinks:
         print(f"  Created {symlinks} symlinks for erroneous citations in briefs.")
     if unmatched:

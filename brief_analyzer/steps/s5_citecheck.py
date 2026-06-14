@@ -538,14 +538,45 @@ def run(config: ProjectConfig):
             raise FileNotFoundError(f"No briefs matching '{config.brief_filter}'. Available: "
                                     + ", ".join(f.name for f in find_brief_texts(config.project_dir)))
 
-    auth_txts = list(config.authorities_dir.glob("*.txt"))
-    if not auth_txts:
-        raise FileNotFoundError("No authority .txt files found. Run 'westlaw' and 'process' steps first.")
+    # Discover authorities: one entry per stem. Prefer .json (structured schema
+    # with metadata + full body) over .txt. .txt is still a valid fallback.
+    import sys as _sys
+    _auth_scripts = str(Path.home() / ".claude/skills/authorities/scripts")
+    if _auth_scripts not in _sys.path:
+        _sys.path.insert(0, _auth_scripts)
+    try:
+        from load_opinion import load_opinion as _load_opinion
+    except ImportError:
+        _load_opinion = None
 
-    # Load all authority texts once
+    auth_by_stem: dict[str, Path] = {}
+    for ext in ("*.json", "*.txt"):
+        for path in config.authorities_dir.glob(ext):
+            auth_by_stem.setdefault(path.stem, path)
+
+    if not auth_by_stem:
+        raise FileNotFoundError(
+            "No authority files found (.json or .txt). Run 'westlaw' and 'process' steps first."
+        )
+
+    # Load all authority texts once. For .json, feed Claude the metadata header
+    # + full opinion body so wrong-court/wrong-year errors surface structurally.
     auth_files = {}
-    for f in sorted(auth_txts):
-        auth_files[f.name] = f.read_text(errors="replace")
+    for stem, path in sorted(auth_by_stem.items()):
+        if path.suffix.lower() == ".json" and _load_opinion is not None:
+            try:
+                doc = _load_opinion(path)
+                header = doc.metadata_header()
+                body = doc.body or ""
+                auth_files[stem + ".txt"] = (header + "\n\n" + body) if header else body
+                continue
+            except Exception as e:
+                print(f"  json: failed to load {path.name}: {e}; falling back to .txt")
+                txt_fallback = path.with_suffix(".txt")
+                if txt_fallback.exists():
+                    auth_files[txt_fallback.name] = txt_fallback.read_text(errors="replace")
+                continue
+        auth_files[path.name] = path.read_text(errors="replace")
 
     print(f"  Cite-checking {len(txt_files)} briefs against {len(auth_files)} authorities")
 
