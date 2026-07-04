@@ -127,8 +127,8 @@ def load_config(config_path: Optional[Path] = None, **overrides) -> ProjectConfi
             **westlaw_data,
         ),
         pandoc=PandocConfig(**pandoc_data),
-        claude_model=data.get("claude_model", overrides.get("model", "opus")),
-        parallel_agents=data.get("parallel_agents", overrides.get("parallel", 4)),
+        claude_model=data.get("claude_model", overrides.get("model") or "opus"),
+        parallel_agents=data.get("parallel_agents", overrides.get("parallel") or 4),
     )
 
     # CLI overrides take precedence

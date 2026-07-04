@@ -40,12 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--parallel",
         type=int,
-        default=4,
+        default=None,
         help="Number of parallel Claude agents for cite-check (default: 4)",
     )
     parser.add_argument(
         "--model",
-        default="opus",
+        default=None,
         help="Claude model to use (default: opus)",
     )
     parser.add_argument(
